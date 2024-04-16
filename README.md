@@ -286,7 +286,7 @@ DATASEG
     ; Create needed graphics variables (331 bytes, can be lowered with a little modifications if needed)
     include 'gdata.inc'
     ; Asciiz sprite sheet path
-    packman_sheet db "packman_spritesheet.bmp", 0
+    packman_sheet db "packman_ss.bmp", 0
 
     ; Create the variables that will contain sprite data
     packman dw 5 dup(?)
