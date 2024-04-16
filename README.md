@@ -293,148 +293,148 @@ DATASEG
     ghost   dw 5 dup(?)
 CODESEG
 start:
-	  mov ax, @data
-	  mov ds, ax
+	mov ax, @data
+	mov ds, ax
 
-    ; Activate graphics mode
-    mov ax, 13h
-    int 10h
+	; Activate graphics mode
+    	mov ax, 13h
+    	int 10h
 
-    ; Load the sprite sheet
-    push 227
+    	; Load the sprite sheet
+    	push 227
   	push 160
   	push offset packman_sheet
   	call LoadSpriteGlobe
 
-    ; Load the sprite sheet's palette
+    	; Load the sprite sheet's palette
   	call LoadSpriteGlobePalette
 
-    ; Set the transparent color to be black
-    push 0 ; R
+    	; Set the transparent color to be black
+    	push 0 ; R
   	push 0 ; G
   	push 0 ; B
   	call SetTransparentColor
 
-    ; Load in sprites
-    push 20
-	  push 1
+    	; Load in sprites
+    	push 20
+	push 1
   	push 12
   	push 13
   	push offset packman
   	call LoadSprite
     
-    push 4
-	  push 65
+    	push 4
+	push 65
   	push 14
   	push 14
   	push offset ghost
   	call LoadSprite
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Draw the packman sprite
-    push 10
+    	; Draw the packman sprite
+    	push 10
   	push 10
   	push offset packman
   	call DrawSprite
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Draw the ghost sprite
-    push 50
+    	; Draw the ghost sprite
+    	push 50
   	push 50
   	push offset ghost
   	call DrawSprite
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Check if the point (55,55) colides with the ghost drawn at (50,50)
-    push 55
-	  push 55
-	  push 50
-	  push 50
-	  push offset ghost
-	  call HasColidedPoint
-    ; DI should be 1 as they colide
+    	; Check if the point (55,55) colides with the ghost drawn at (50,50)
+   	push 55
+	push 55
+	push 50
+	push 50
+	push offset ghost
+	call HasColidedPoint
+    	; DI should be 1 as they colide
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Clear the screen
-    push 0
-    call FillScreen
+    	; Clear the screen
+    	push 0
+    	call FillScreen
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Draw a point at (100,100)
-    push 100
-    push 100
-    push 1
-    call DrawPoint
+    	; Draw a point at (100,100)
+    	push 100
+    	push 100
+    	push 1
+    	call DrawPoint
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+    	; Wait for a keypress
+    	mov ah, 1
+	int 21h
 
-    ; Draw a filled rect at (100,125) with the width of 5 and height of 10, outline color is 4 and the filled color is 40
-    push 100 ; X
-    push 125 ; Y
-    push 5   ; W
-    push 10  ; H
-    push 4   ; Outline color
-    push 1   ; Is filled
-    push 40  ; Fill color
+	; Draw a filled rect at (100,125) with the width of 5 and height of 10, outline color is 4 and the filled color is 40
+	push 100 ; X
+	push 125 ; Y
+	push 5   ; W
+	push 10  ; H
+	push 4   ; Outline color
+	push 1   ; Is filled
+	push 40  ; Fill color
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+	; Wait for a keypress
+	mov ah, 1
+	int 21h
 
-    ; Clear the screen
-    push 0
-    call FillScreen
+	; Clear the screen
+	push 0
+	call FillScreen
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+	; Wait for a keypress
+	mov ah, 1
+	int 21h
 
-    ; Draw a line from (20, 10) to (60, 21) with the color ID of 5 and width of 3
-    push 5
-    push 3
-    push 20
-    push 10
-    push 60
-    push 21
-    call DrawLine
+	; Draw a line from (20, 10) to (60, 21) with the color ID of 5 and width of 3
+	push 5
+	push 3
+	push 20
+	push 10
+	push 60
+	push 21
+	call DrawLine
 
-    ; Draw the current palette at (50,50)
-    push 50
-    push 50
-    call  DrawPalette
+	; Draw the current palette at (50,50)
+	push 50
+	push 50
+	call  DrawPalette
 
-    ; Wait for a keypress
-    mov ah, 1
-	  int 21h
+	; Wait for a keypress
+	mov ah, 1
+	int 21h
 
-    ; De-activate graphics mode
-    mov ax, 2
-	  int 10h
+	; De-activate graphics mode
+	mov ax, 2
+	int 10h
 
 exit:
-	  mov ax, 4c00h
-	  int 21h
+	mov ax, 4c00h
+	int 21h
 
 ; Add all graphics functions
 include 'graphics.inc'
