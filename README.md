@@ -360,7 +360,7 @@ start:
 	push 50
 	push 50
 	push offset ghost
-	call HasColidedPoint
+	call HasCollidedPoint
     	; DI should be 1 as they colide
 
     	; Wait for a keypress
