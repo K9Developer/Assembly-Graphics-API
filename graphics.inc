@@ -8,7 +8,7 @@
 ;   - DrawSprite
 ;   - LoadSpriteGlobePalette
 ;   - FillScreen
-;   - HasColidedPoint
+;   - HasCollidedPoint
 ;   - DrawPoint
 ;   - DrawRect
 ;   - DrawLine
@@ -36,7 +36,6 @@ proc LoadSpriteGlobe
     push bp
     mov bp, sp
     
-
     ; Update the globe width and height
     mov ax, GAPI_ARG_globe_width
     mov [GAPI_globe_width], ax
@@ -94,47 +93,6 @@ proc UnloadSpriteGlobe
     @@ret:
         ret
 endp UnloadSpriteGlobe
-
-; #####################################
-;
-;   Function Name: _AdvanceFilePointer (LOCAL)
-;   Description: Advance the file pointer by a number of bytes
-;   Input:
-;      - [STACK] File handle (expected to be read)
-;      - [STACK] Number of bytes to move the pointer from its current position
-;   Output:
-;      - [REG]   AX = 0 if no error, otherwise error code
-;
-; #####################################
-GAPI_ARG_file_handle   equ [bp+6]
-GAPI_ARG_pointer_off   equ [bp+4]
-proc _AdvanceFilePointer
-    push bp
-    mov bp, sp
-
-    push bx
-    push dx
-    push cx
-
-    ; Advance the file pointer by `GAPI_ARG_bytes_to_read` bytes
-    xor cx, cx
-    mov ah, 42h
-    mov al, 01h
-    mov bx, GAPI_ARG_file_handle
-    mov dx, GAPI_ARG_pointer_off
-    int 21h
-    jc @@ret
-    mov ax, 0
-
-    @@ret:
-        pop cx
-        pop dx
-        pop bx
-
-        mov sp, bp
-        pop bp
-        ret 4
-endp _AdvanceFilePointer
 
 ; #####################################
 ;
@@ -318,17 +276,20 @@ proc LoadSprite
     mov ax, [GAPI_globe_height]
     sub ax, GAPI_ARG_sprite_y
     sub ax, GAPI_ARG_sprite_height
+    inc ax
     mov GAPI_ARG_sprite_y, ax
 
     ; Calculate bytes to skip to get to sprite start position
     mov ax, [GAPI_globe_width]
+    inc ax
     mov bx, GAPI_ARG_sprite_y
-    cmp GAPI_ARG_sprite_y, 0 ; check before flip
+    cmp GAPI_LOC_flippedY, 0 ; check before flip
     je @@skp
     dec bx
     @@skp:
     xor dx, dx
     mul bx
+    call showaxdecimal
     add ax, GAPI_ARG_sprite_x
     add GAPI_LOC_off, ax
 
@@ -434,6 +395,7 @@ proc DrawSprite
     mov bx, [word ds:si+8]
     mov GAPI_LOC_spriteOff, bx
 
+
     ; Prepare the video memory offset (DI -> video memory index) | start from end because Y is flipped
     mov ax, GAPI_ARG_draw_y
     mov bx, 320
@@ -445,16 +407,16 @@ proc DrawSprite
     dec ax
     xor dx, dx
     mul bx
-
     add di, ax
+
     add di, GAPI_ARG_draw_x
 
     ; Advance the file pointer to the sprite data
-    mov ax, GAPI_LOC_spriteOff
     push [GAPI_globe_file_handle]
-    push ax
+    push GAPI_LOC_spriteOff
     call _SetFilePointer
 
+    ; Drawing from bottom to top
     mov cx, GAPI_LOC_spriteH
     @@line_loop:
         push cx
@@ -464,13 +426,14 @@ proc DrawSprite
         mov ah, 3Fh
         mov bx, [GAPI_globe_file_handle]
         mov cx, [GAPI_globe_width]
+        inc cx
         mov dx, offset GAPI_curr_bmp_line
         int 21h
         jc @@ret
 
         ; Draw the line
-        mov cx, GAPI_LOC_spriteW
         mov bx, offset GAPI_curr_bmp_line
+        mov cx, GAPI_LOC_spriteW
         @@col_loop:
             xor ax, ax
             mov al, [byte ds:bx]
@@ -485,8 +448,8 @@ proc DrawSprite
             loop @@col_loop
 
         ; Move to the next line (Screen)
-        sub di, 320 ; skip currently drawn line and move to the next line
-        sub di, GAPI_LOC_spriteW
+        sub di, GAPI_LOC_spriteW ; Go back on drawn line
+        sub di, 320 ; Skip to the next line
 
         pop cx
         loop @@line_loop
@@ -525,6 +488,8 @@ proc LoadSpriteGlobePalette
     push [GAPI_globe_file_handle]
     push 54 ; Skip header
     call _SetFilePointer
+    cmp ax, 0
+    jne @@ret
 
     ; Load the palette
     mov cx, 256
@@ -619,11 +584,13 @@ endp FillScreen
 
 ; #####################################
 ;
-;  Function Name: HasColidedPoint (PUBLIC)
+;  Function Name: HasCollidedPoint (PUBLIC)
 ;  Description: Check if a point has colided with a sprite
 ;  Input:
-;      - [STACK] The x position of the point
-;      - [STACK] The y position of the point
+;      - [STACK] The X position of the point
+;      - [STACK] The Y position of the point
+;      - [STACK] The X position of the sprite
+;      - [STACK] The Y position of the sprite
 ;      - [STACK] The offset to the variable that stores the sprite data
 ;  Output:
 ;      - [REG]   AX = 0 if no error, otherwise error code
@@ -642,7 +609,7 @@ GAPI_LOC_spriteW           equ [word bp-6]
 GAPI_LOC_spriteH           equ [word bp-8]
 GAPI_LOC_spriteOff         equ [word bp-10]
 GAPI_LOC_point_offset      equ [word bp-12]
-proc HasColidedPoint
+proc HasCollidedPoint
     push bp
     mov bp, sp
     sub sp, 12
@@ -696,6 +663,8 @@ proc HasColidedPoint
     push [GAPI_globe_file_handle]
     push ax
     call _SetFilePointer
+    cmp ax, 0
+    jne @@ret
 
     mov cx, GAPI_LOC_spriteH
     @@line_loop:
@@ -757,7 +726,7 @@ proc HasColidedPoint
         mov sp, bp
         pop bp
         ret 10
-endp HasColidedPoint
+endp HasCollidedPoint
 
 ; #####################################
 ;
@@ -932,12 +901,26 @@ proc DrawRect
 
 endp DrawRect
 
-GAPI_ARG_y2       equ [word bp+4]
-GAPI_ARG_x2       equ [word bp+6]
-GAPI_ARG_y1       equ [word bp+8]
-GAPI_ARG_x1       equ [word bp+10]
-GAPI_ARG_width    equ [word bp+12]
+; #####################################
+;
+;  Function Name: DrawLine (PUBLIC)
+;  Description: Draw a line on the screen
+;  Input:
+;      - [STACK] The color of the line
+;      - [STACK] The width of the line
+;      - [STACK] The x1 position of the line
+;      - [STACK] The y1 position of the line
+;      - [STACK] The x2 position of the line
+;      - [STACK] The y2 position of the line
+;  Output: None
+;
+; #####################################
 GAPI_ARG_color    equ [word bp+14]
+GAPI_ARG_width    equ [word bp+12]
+GAPI_ARG_x1       equ [word bp+10]
+GAPI_ARG_y1       equ [word bp+8]
+GAPI_ARG_x2       equ [word bp+6]
+GAPI_ARG_y2       equ [word bp+4]
 GAPI_LOC_deltX        equ [word bp-2]
 GAPI_LOC_deltY        equ [word bp-4]
 GAPI_LOC_slope        equ [word bp-6]
