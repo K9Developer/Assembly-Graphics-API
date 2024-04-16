@@ -39,23 +39,6 @@ of the sheet and treat each one as a different sprite.
 
 <br />
 
-> ### UnloadSpriteGlobe
-> _**Arguments:**_ None
-> 
-> **_Output:_**
->   - AX will be 0 if there were no errors, otherwise it will be the error code
->     
->  _**Description:**_ This closes the sprite sheet BMP file handle.
-> 
->  _**Example usage:**_
->  ```x86asm
->  call UnloadSpriteGlobe
->  ```
->  
->  _**Notes:**_ This is the last proc you will call
-
-<br />
-
 > ### LoadSpriteGlobePalette
 > _**Arguments:**_ None
 >
@@ -110,16 +93,355 @@ of the sheet and treat each one as a different sprite.
 >
 > _**Example usage:**_
 >  ```x86asm
->  push 10
->  push 23
->  push 26
->  push 28
->  push offset SPRITE_mario_data
+>  push 10 ; X
+>  push 23 ; Y
+>  push 26 ; W
+>  push 28 ; H
+>  push offset SPRITE_mario_data ; Sprite data off
 >  call LoadSprite
 >  ```
 >  
 
 <br />
+
+> ### DrawSprite
+> _**Arguments:**_
+>   - The left X position to draw the sprite
+>   - The top  Y position to draw the sprite
+>   - An offset to the variable that contains the sprite information
+> 
+> _**Output:**_ None
+> 
+>  _**Description:**_ This takes in the variable data, reads the BMP data and draws the sprite at the selected location (excluding the transparent color if it exists)
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 10 ; X
+>  push 15 ; Y
+>  push offset SPRITE_mario_data ; Sprite data off
+>  call DrawSprite
+>  ```
+>  
+
+<br />
+
+> ### FillScreen
+> _**Arguments:**_
+>   - The color ID of the chosen background color
+> 
+> _**Output:**_ None
+> 
+>  _**Description:**_ This will fill the whole screen with a chosen color
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 40 ; Color ID
+>  call FillScreen
+>  ```
+
+<br />
+
+> ### HasCollidedPoint
+> _**Arguments:**_
+>   - The point's X value
+>   - The point's Y value
+>   - The sprite's X value
+>   - The sprite's Y value
+>   - The offset to the variable that contains the sprite data
+> 
+> _**Output:**_
+>   - AX will be 0 if there were no errors, otherwise it will be the error code
+>   - DI will be 1 if a collision has occured, 0 if not
+> 
+>  _**Description:**_ This checks if a certain position is within a sprite (excluding transparent parts)
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 20 ; Point X
+>  push 20 ; Point Y
+>  push 10 ; Sprite X
+>  push 15 ; Sprite Y
+>  offset SPRITE_mario_data ; Sprite data off
+>  call HasCollidedPoint
+>  ```
+
+<br />
+
+> ### DrawPoint
+> _**Arguments:**_
+>   - The point's X value
+>   - The point's Y value
+>   - The point's color ID
+> 
+> _**Output:**_ None
+> 
+>  _**Description:**_ This draws a pixel with a color in a specified position
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 20 ; Point X
+>  push 20 ; Point Y
+>  push 40 ; Color ID
+>  call DrawPoint
+>  ```
+
+<br />
+
+> ### DrawRect
+> _**Arguments:**_
+>   - The X position of the rect
+>   - The Y position of the rect
+>   - The width of the rect
+>   - The height of the rect
+>   - The X position of the rect
+>   - The outline color of the rect
+>   - The fill flag (1 = fill, 0 = no fill)
+>   - The fill color of the rect
+> 
+> _**Output:**_ None
+> 
+>  _**Description:**_ Draws a rect at a specified position with a colored outline or fill
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 20 ; Rect X
+>  push 20 ; Rect Y
+>  push 10 ; Rect width
+>  push 23 ; Rect height
+>  push 40 ; Outline color ID
+>  push 1  ; fill flag
+>  push 2  ; Fill color ID
+>  call DrawRect
+>  ```
+
+<br />
+
+> ### DrawLine
+> _**Arguments:**_
+>   - The color ID of the line
+>   - The line width
+>   - The start pos' X value
+>   - The start pos' Y value
+>   - The end pos' X value
+>   - The end pos' Y value
+> 
+> _**Output:**_ None
+> 
+>  _**Description:**_ Draws a line from a start pos to an end point using Bresenham's line algorithm
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 40 ; Color ID
+>  push 1  ; Line width
+>  push 10 ; Start pos X
+>  push 10 ; Start pos Y
+>  push 80 ; End pos X
+>  push 70 ; End pos Y
+>  call DrawLine
+>  ```
+
+<br />
+
+> ### DrawPalette
+> _**Arguments:**_
+>   - The X value to draw the palette in
+>   - The Y value to draw the palette in
+> 
+> _**Output:**_ None
+> 
+>  _**Description:**_ Draws the palette in a certain position
+>
+> _**Example usage:**_
+>  ```x86asm
+>  push 10  ; The X pos to draw the palette
+>  push 10  ; The Y pos to draw the palette
+>  call DrawPalette
+>  ```
+
+<br />
+
+> ### UnloadSpriteGlobe
+> _**Arguments:**_ None
+> 
+> **_Output:_**
+>   - AX will be 0 if there were no errors, otherwise it will be the error code
+>     
+>  _**Description:**_ This closes the sprite sheet BMP file handle.
+> 
+>  _**Example usage:**_
+>  ```x86asm
+>  call UnloadSpriteGlobe
+>  ```
+>  
+>  _**Notes:**_ This is the last proc you will call
+
+<br />
+
+## Example usage
+```
+IDEAL
+MODEL small
+STACK 100h
+DATASEG
+    ; Create needed graphics variables (331 bytes, can be lowered with a little modifications if needed)
+    include 'gdata.inc'
+    ; Asciiz sprite sheet path
+    packman_sheet db "packman_spritesheet.bmp", 0
+
+    ; Create the variables that will contain sprite data
+    packman dw 5 dup(?)
+    ghost   dw 5 dup(?)
+CODESEG
+start:
+	  mov ax, @data
+	  mov ds, ax
+
+    ; Activate graphics mode
+    mov ax, 13h
+    int 10h
+
+    ; Load the sprite sheet
+    push 227
+  	push 160
+  	push offset packman_sheet
+  	call LoadSpriteGlobe
+
+    ; Load the sprite sheet's palette
+  	call LoadSpriteGlobePalette
+
+    ; Set the transparent color to be black
+    push 0 ; R
+  	push 0 ; G
+  	push 0 ; B
+  	call SetTransparentColor
+
+    ; Load in sprites
+    push 20
+	  push 1
+  	push 12
+  	push 13
+  	push offset packman
+  	call LoadSprite
+    
+    push 4
+	  push 65
+  	push 14
+  	push 14
+  	push offset ghost
+  	call LoadSprite
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Draw the packman sprite
+    push 10
+  	push 10
+  	push offset packman
+  	call DrawSprite
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Draw the ghost sprite
+    push 50
+  	push 50
+  	push offset ghost
+  	call DrawSprite
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Check if the point (55,55) colides with the ghost drawn at (50,50)
+    push 55
+	  push 55
+	  push 50
+	  push 50
+	  push offset ghost
+	  call HasColidedPoint
+    ; DI should be 1 as they colide
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Clear the screen
+    push 0
+    call FillScreen
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Draw a point at (100,100)
+    push 100
+    push 100
+    push 1
+    call DrawPoint
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Draw a filled rect at (100,125) with the width of 5 and height of 10, outline color is 4 and the filled color is 40
+    push 100 ; X
+    push 125 ; Y
+    push 5   ; W
+    push 10  ; H
+    push 4   ; Outline color
+    push 1   ; Is filled
+    push 40  ; Fill color
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Clear the screen
+    push 0
+    call FillScreen
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; Draw a line from (20, 10) to (60, 21) with the color ID of 5 and width of 3
+    push 5
+    push 3
+    push 20
+    push 10
+    push 60
+    push 21
+    call DrawLine
+
+    ; Draw the current palette at (50,50)
+    push 50
+    push 50
+    call  DrawPalette
+
+    ; Wait for a keypress
+    mov ah, 1
+	  int 21h
+
+    ; De-activate graphics mode
+    mov ax, 2
+	  int 10h
+
+exit:
+	  mov ax, 4c00h
+	  int 21h
+
+; Add all graphics functions
+include 'graphics.inc'
+END start
+
+
+```
 
 ## Error codes
 * 01  Invalid function number
