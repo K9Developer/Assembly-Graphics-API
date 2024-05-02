@@ -8,11 +8,13 @@
 ;   - DrawSprite
 ;   - LoadSpriteGlobePalette
 ;   - FillScreen
-;   - HasCollidedPoint
 ;   - DrawPoint
 ;   - DrawRect
 ;   - DrawLine
 ;   - DrawPalette
+;   - CheckLineAndBMPCollision
+;   - CheckRectAndBMPCollision
+;   - CheckPointAndBMPCollision
 ;
 ; Made by K9Dev / Ilai K
 ; ----------------------------
@@ -100,13 +102,15 @@ endp UnloadSpriteGlobe
 ;   Description: Set the pointer of the file to a specified position
 ;   Input:
 ;      - [STACK] File handle (expected to be read)
-;      - [STACK] Number of bytes to move the pointer from its current position
+;      - [STACK] Number of bytes to move the pointer from its current position (HIGH)
+;      - [STACK] Number of bytes to move the pointer from its current position (LOW)
 ;   Output:
 ;      - [REG]   AX = 0 if no error, otherwise error code
 ;
 ; #####################################
-GAPI_ARG_file_handle   equ [bp+6]
-GAPI_ARG_pointer_off   equ [bp+4]
+GAPI_ARG_handle   equ [bp+8]
+GAPI_ARG_pointer_offHIGH  equ [bp+6]
+GAPI_ARG_pointer_offLOW   equ [bp+4]
 proc _SetFilePointer
     push bp
     mov bp, sp
@@ -116,10 +120,51 @@ proc _SetFilePointer
     push cx
 
     ; Set the file pointer to `GAPI_ARG_pointer_off`
-    xor cx, cx
     mov ah, 42h
     mov al, 00h
-    mov bx, GAPI_ARG_file_handle
+    mov bx, GAPI_ARG_handle
+    mov dx, GAPI_ARG_pointer_offLOW
+    mov cx, GAPI_ARG_pointer_offHIGH
+    int 21h
+    jc @@ret
+    mov ax, 0
+
+    @@ret:
+        pop cx
+        pop dx
+        pop bx
+
+        mov sp, bp
+        pop bp
+        ret 6
+endp _SetFilePointer
+
+; #####################################
+;
+;   Function Name: _AdvanceFilePointer (LOCAL)
+;   Description: Set the pointer of the file to a specified position
+;   Input:
+;      - [STACK] File handle (expected to be read)
+;      - [STACK] Number of bytes to move the pointer from its current position
+;   Output:
+;      - [REG]   AX = 0 if no error, otherwise error code
+;
+; #####################################
+GAPI_ARG_handle   equ [bp+6]
+GAPI_ARG_pointer_off   equ [bp+4]
+proc _AdvanceFilePointer
+    push bp
+    mov bp, sp
+
+    push bx
+    push dx
+    push cx
+
+    ; Move file pointer `GAPI_ARG_pointer_off` bytes
+    mov ah, 42h
+    mov al, 01h
+    mov bx, GAPI_ARG_handle
+    xor cx, cx
     mov dx, GAPI_ARG_pointer_off
     int 21h
     jc @@ret
@@ -133,87 +178,69 @@ proc _SetFilePointer
         mov sp, bp
         pop bp
         ret 4
-endp _SetFilePointer
+endp _AdvanceFilePointer
 
 ; #####################################
 ;
 ;   Function Name: SetTransparentColor (PUBLIC)
 ;   Description: Sets the color to ignore when drawing the sprite (finds the color index in the palette)
 ;   Input:
-;      - [STACK] Red component of the color   (R)
-;      - [STACK] Green component of the color (G)
-;      - [STACK] Blue component of the color  (B)
-;   Output: None
+;      - [STACK] The X position of the color in the BMP
+;      - [STACK] The Y position of the color in the BMP
+;   Output:
+;      - [REG]   AX = 0 if no error, otherwise error code
 ;
 ; #####################################
-GAPI_ARG_red   equ [bp+8]
-GAPI_ARG_green equ [bp+6]
-GAPI_ARG_blue  equ [bp+4]
+GAPI_ARG_transX equ [word bp+6]
+GAPI_ARG_transY  equ [word bp+4]
 proc SetTransparentColor
     push bp
     mov bp, sp
-
-    ; When you set the transparent color,
-    ; this function finds that color in the palette and saves its index to filter it out later
 
     push ax
     push bx
     push cx
     push dx
 
-    ; Convert byte RGB colors to 6-bit colors
-    shr GAPI_ARG_red,2
-    shr GAPI_ARG_green,2
-    shr GAPI_ARG_blue,2
+    ; Calculate offset (DX:AX)
+    mov ax, GAPI_ARG_transY
+    mov bx, [GAPI_globe_width]
+    xor dx, dx
+    mul bx
+    add ax, GAPI_ARG_transX
+    adc dx, 0
 
-    ; Set port data address
-    mov dx, 03C7h
-    mov al, 0
-    out dx, al
-    mov dx, 03C9h
-    mov cx, 256
-    xor bx, bx
-    @@get_curr_color:
-        push cx
+    ; Skip the BMP header and palette
+    mov bx, 54 + 400h ; header + palette
+    add ax, bx
+    adc dx, 0
 
-        ; Read the red component
-        in al, dx
-        cmp al, GAPI_ARG_red
-        jne @@first_bad
+    ; Set the pointer
+    push [GAPI_globe_file_handle]
+    push dx
+    push ax
+    call _SetFilePointer
+    cmp ax, 0
+    jne @@ret
 
-        ; Read the green component
-        in al, dx
-        cmp al, GAPI_ARG_green
-        jne @@second_bad
+    ; Read the color
+    mov ah, 3Fh
+    mov bx, [GAPI_globe_file_handle]
+    mov cx, 1
+    mov dx, offset GPAI_transparent_clr_id
+    int 21h
+    jc @@ret
 
-        ; Read the blue component
-        in al, dx
-        cmp al, GAPI_ARG_blue
-        jne @@skip_color
-
-        ; Found the color, save the index
-        mov [GPAI_transparent_clr_id], bl
-
-        ; Make sure to move to the next color
-        @@first_bad:
-            in al, dx
-        @@second_bad:
-            in al, dx
-
-        @@skip_color:
-            inc bx
-            pop cx
-            loop @@get_curr_color
-
+    mov ax, 0
+    
     @@ret:
         pop dx
         pop cx
         pop bx
         pop ax
 
-        mov sp, bp
         pop bp
-        ret 6
+        ret 4
 endp SetTransparentColor
 
 ; #####################################
@@ -236,12 +263,13 @@ GAPI_ARG_sprite_y      equ [word bp+10]
 GAPI_ARG_sprite_width  equ [word bp+8]
 GAPI_ARG_sprite_height equ [word bp+6]
 GAPI_ARG_sprite_data   equ [word bp+4]
-GAPI_LOC_off           equ [word bp-2]
-GAPI_LOC_flippedY      equ [word bp-4]
+GAPI_LOC_offLOW        equ [word bp-2]
+GAPI_LOC_offHIGH       equ [word bp-4]
+GAPI_LOC_flippedY      equ [word bp-6]
 proc LoadSprite
     push bp
     mov bp, sp
-    sub sp, 4
+    sub sp, 6
 
     ; This function saves the sprite data in the following format: w,h,x,y,byte offset
     ; For later use.
@@ -270,18 +298,20 @@ proc LoadSprite
     mov GAPI_LOC_flippedY, ax
 
     ; Get the byte offset of the sprite in the BMP
-    mov GAPI_LOC_off, 54 + 400h ; header + palette
+    mov GAPI_LOC_offLOW, 54 + 400h ; header + palette
 
     ; Flip Y
     mov ax, [GAPI_globe_height]
     sub ax, GAPI_ARG_sprite_y
     sub ax, GAPI_ARG_sprite_height
+    cmp ax, 0
+    jne @@fix
     inc ax
+    @@fix:
     mov GAPI_ARG_sprite_y, ax
 
     ; Calculate bytes to skip to get to sprite start position
     mov ax, [GAPI_globe_width]
-    inc ax
     mov bx, GAPI_ARG_sprite_y
     cmp GAPI_LOC_flippedY, 0 ; check before flip
     je @@skp
@@ -289,9 +319,11 @@ proc LoadSprite
     @@skp:
     xor dx, dx
     mul bx
-    call showaxdecimal
+
     add ax, GAPI_ARG_sprite_x
-    add GAPI_LOC_off, ax
+    adc dx, 0 ; add carry
+    add GAPI_LOC_offLOW, ax
+    mov GAPI_LOC_offHIGH, dx
 
     ; Check if the sprite is out of the BMP (x)
     mov ax, GAPI_ARG_sprite_x
@@ -315,8 +347,10 @@ proc LoadSprite
     mov [word ds:si+4], ax
     mov ax, GAPI_ARG_sprite_height
     mov [word ds:si+6], ax
-    mov ax, GAPI_LOC_off
+    mov ax, GAPI_LOC_offHIGH
     mov [word ds:si+8], ax
+    mov ax, GAPI_LOC_offLOW
+    mov [word ds:si+10], ax
 
     jmp @@cont
 
@@ -363,13 +397,14 @@ GAPI_LOC_spriteX                equ [word bp-2]
 GAPI_LOC_spriteY                equ [word bp-4]
 GAPI_LOC_spriteW                equ [word bp-6]
 GAPI_LOC_spriteH                equ [word bp-8]
-GAPI_LOC_spriteOff              equ [word bp-10]
+GAPI_LOC_spriteOffLOW           equ [word bp-10]
+GAPI_LOC_spriteOffHIGH          equ [word bp-12]
+GAPI_LOC_padding                equ [word bp-14]
 proc DrawSprite
     push bp
     mov bp, sp
-    sub sp, 10
+    sub sp, 14
     
-    push ax
     push bx
     push cx
     push dx
@@ -393,8 +428,9 @@ proc DrawSprite
     mov bx, [word ds:si+6]
     mov GAPI_LOC_spriteH, bx
     mov bx, [word ds:si+8]
-    mov GAPI_LOC_spriteOff, bx
-
+    mov GAPI_LOC_spriteOffHIGH, bx
+    mov bx, [word ds:si+10]
+    mov GAPI_LOC_spriteOffLOW, bx
 
     ; Prepare the video memory offset (DI -> video memory index) | start from end because Y is flipped
     mov ax, GAPI_ARG_draw_y
@@ -413,20 +449,22 @@ proc DrawSprite
 
     ; Advance the file pointer to the sprite data
     push [GAPI_globe_file_handle]
-    push GAPI_LOC_spriteOff
+    push GAPI_LOC_spriteOffHIGH
+    push GAPI_LOC_spriteOffLOW
     call _SetFilePointer
+    cmp ax, 0
+    jne @@ret
 
     ; Drawing from bottom to top
     mov cx, GAPI_LOC_spriteH
     @@line_loop:
         push cx
-        
+       
         ; Read the line
         xor ax, ax
         mov ah, 3Fh
         mov bx, [GAPI_globe_file_handle]
-        mov cx, [GAPI_globe_width]
-        inc cx
+        mov cx, 320
         mov dx, offset GAPI_curr_bmp_line
         int 21h
         jc @@ret
@@ -436,12 +474,12 @@ proc DrawSprite
         mov cx, GAPI_LOC_spriteW
         @@col_loop:
             xor ax, ax
-            mov al, [byte ds:bx]
+            mov al, [bx]
             cmp al, [GPAI_transparent_clr_id]
             je @@skip_draw
 
             mov [byte es:di], al
-            
+       
             @@skip_draw:
             inc bx
             inc di
@@ -450,6 +488,22 @@ proc DrawSprite
         ; Move to the next line (Screen)
         sub di, GAPI_LOC_spriteW ; Go back on drawn line
         sub di, 320 ; Skip to the next line
+
+        ; Advance pointer incase globe is bigger than 320
+        cmp [GAPI_globe_width], 320
+        jle @@skip_pointer
+
+
+        mov ax, [GAPI_globe_width]
+        sub ax, 320
+
+        push [GAPI_globe_file_handle]
+        push ax
+        call _AdvanceFilePointer
+        cmp ax, 0
+        jne @@ret
+
+        @@skip_pointer:
 
         pop cx
         loop @@line_loop
@@ -462,7 +516,6 @@ proc DrawSprite
         pop dx
         pop cx
         pop bx
-        pop ax
 
         mov sp, bp
         pop bp
@@ -486,6 +539,7 @@ proc LoadSpriteGlobePalette
 
     ; Skip the BMP header
     push [GAPI_globe_file_handle]
+    push 0
     push 54 ; Skip header
     call _SetFilePointer
     cmp ax, 0
@@ -584,7 +638,7 @@ endp FillScreen
 
 ; #####################################
 ;
-;  Function Name: HasCollidedPoint (PUBLIC)
+;  Function Name: CheckPointAndBMPCollision (PUBLIC)
 ;  Description: Check if a point has colided with a sprite
 ;  Input:
 ;      - [STACK] The X position of the point
@@ -607,12 +661,13 @@ GAPI_LOC_spriteX           equ [word bp-2]
 GAPI_LOC_spriteY           equ [word bp-4]
 GAPI_LOC_spriteW           equ [word bp-6]
 GAPI_LOC_spriteH           equ [word bp-8]
-GAPI_LOC_spriteOff         equ [word bp-10]
-GAPI_LOC_point_offset      equ [word bp-12]
-proc HasCollidedPoint
+GAPI_LOC_spriteOffLOW      equ [word bp-10]
+GAPI_LOC_spriteOffHIGH     equ [word bp-12]
+GAPI_LOC_point_offset      equ [word bp-14]
+proc CheckPointAndBMPCollision
     push bp
     mov bp, sp
-    sub sp, 12
+    sub sp, 14
 
     push bx
     push cx
@@ -643,7 +698,9 @@ proc HasCollidedPoint
     mov bx, [word ds:si+6]
     mov GAPI_LOC_spriteH, bx
     mov bx, [word ds:si+8]
-    mov GAPI_LOC_spriteOff, bx
+    mov GAPI_LOC_spriteOffHIGH, bx
+    mov bx, [word ds:si+10]
+    mov GAPI_LOC_spriteOffLOW, bx
 
     ; Calculate the video memory index for sprite
     mov ax, GAPI_ARG_sprite_y
@@ -659,9 +716,9 @@ proc HasCollidedPoint
     add di, GAPI_ARG_sprite_x
 
     ; Advance the file pointer to the sprite data
-    mov ax, GAPI_LOC_spriteOff
     push [GAPI_globe_file_handle]
-    push ax
+    push GAPI_LOC_spriteOffHIGH
+    push GAPI_LOC_spriteOffLOW
     call _SetFilePointer
     cmp ax, 0
     jne @@ret
@@ -726,7 +783,491 @@ proc HasCollidedPoint
         mov sp, bp
         pop bp
         ret 10
-endp HasCollidedPoint
+endp CheckPointAndBMPCollision
+
+; #####################################
+;
+;  Function Name: CheckLineAndBMPCollision (PUBLIC)
+;  Description: Check if a line has colided with a sprite
+;  Input:
+;      - [STACK] The x1 position of the line
+;      - [STACK] The y1 position of the line
+;      - [STACK] The x2 position of the line
+;      - [STACK] The y2 position of the line
+;      - [STACK] The width of the line
+;      - [STACK] The sprite X position
+;      - [STACK] The sprite Y position
+;      - [STACK] The offset to the variable that stores the sprite data
+;  Output:
+;      - [REG]   DI = 1 if the point has colided with the sprite, otherwise 0
+;
+; #####################################
+GAPI_ARG_x1           equ [word bp+18]
+GAPI_ARG_y1           equ [word bp+16]
+GAPI_ARG_x2           equ [word bp+14]
+GAPI_ARG_y2           equ [word bp+12]
+GAPI_ARG_width        equ [word bp+10]
+GAPI_ARG_sprite_x     equ [word bp+8]
+GAPI_ARG_sprite_y     equ [word bp+6]
+GAPI_ARG_sprite_data  equ [word bp+4]
+GAPI_LOC_deltX        equ [word bp-2]
+GAPI_LOC_deltY        equ [word bp-4]
+GAPI_LOC_slope        equ [word bp-6]
+GAPI_LOC_error        equ [word bp-8]
+GAPI_LOC_y            equ [word bp-10]
+GAPI_LOC_x            equ [word bp-12]
+GAPI_LOC_ystep        equ [word bp-14]
+proc CheckLineAndBMPCollision
+    ; Taken from https://github.com/anushaihalapathirana/Bresenham-line-drawing-algorithm/blob/master/src/index.js
+
+    push bp
+    mov bp, sp
+    
+    sub sp, 14
+    
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+
+    ; dx = abs(x2 - x1)
+    mov ax, GAPI_ARG_x2
+    sub ax, GAPI_ARG_x1
+    push ax
+    call _AbsNum
+    mov GAPI_LOC_deltX, di
+
+    ; dy = abs(y2 - y1)
+    mov ax, GAPI_ARG_y2
+    sub ax, GAPI_ARG_y1
+    push ax
+    call _AbsNum
+    mov GAPI_LOC_deltY, di
+
+    ; GAPI_LOC_slope = dy > dx
+    mov ax, GAPI_LOC_deltY
+    cmp ax, GAPI_LOC_deltX
+    jg @@dyGreater
+    mov GAPI_LOC_slope, 0
+    jmp @@cont
+    @@dyGreater:
+        mov GAPI_LOC_slope, 1
+    @@cont:
+    
+    ; if GAPI_LOC_slope
+    mov ax, GAPI_LOC_slope
+    cmp ax, 0
+    je @@skip1
+
+    ; x1, y1 = y1, x1
+    ; x2, y2 = y2, x2
+    mov ax, GAPI_ARG_x1
+    mov bx, GAPI_ARG_y1
+    mov GAPI_ARG_x1, bx
+    mov GAPI_ARG_y1, ax
+    mov ax, GAPI_ARG_x2
+    mov bx, GAPI_ARG_y2
+    mov GAPI_ARG_x2, bx
+    mov GAPI_ARG_y2, ax
+
+    @@skip1:
+    
+    ; if x1 > x2
+    mov ax, GAPI_ARG_x1
+    cmp ax, GAPI_ARG_x2
+    jle @@skip2
+
+    ; x1, x2 = x2, x1
+    ; y1, y2 = y2, y1
+    mov ax, GAPI_ARG_x1
+    mov bx, GAPI_ARG_x2
+    mov GAPI_ARG_x1, bx
+    mov GAPI_ARG_x2, ax
+    mov ax, GAPI_ARG_y1
+    mov bx, GAPI_ARG_y2
+    mov GAPI_ARG_y1, bx
+    mov GAPI_ARG_y2, ax
+    
+    @@skip2:
+    
+    ; dx = abs(x2 - x1)
+    mov ax, GAPI_ARG_x2
+    sub ax, GAPI_ARG_x1
+    push ax
+    call _AbsNum
+    mov GAPI_LOC_deltX, di
+
+    ; dy = abs(y2 - y1)
+    mov ax, GAPI_ARG_y2
+    sub ax, GAPI_ARG_y1
+    push ax
+    call _AbsNum
+    mov GAPI_LOC_deltY, di
+
+    ; GAPI_LOC_error = dx / 2 (round)
+    mov ax, GAPI_LOC_deltX
+    shr ax, 1
+    mov GAPI_LOC_error, ax
+    
+    ; y = y1
+    mov ax, GAPI_ARG_y1
+    mov GAPI_LOC_y, ax
+    
+    ; GAPI_LOC_ystep = 1 if y1 < y2 else -1
+    mov GAPI_LOC_ystep, 0
+    mov ax, GAPI_ARG_y1
+    cmp ax, GAPI_ARG_y2
+    je @@cont2
+    jl @@y1LessY2
+    mov GAPI_LOC_ystep, -1
+    jmp @@cont2
+    @@y1LessY2:
+        mov GAPI_LOC_ystep, 1
+    @@cont2:
+
+    ; for x in range(x1, x2 + 1)
+    mov ax, GAPI_ARG_x1
+    mov cx, GAPI_LOC_deltX
+    inc cx
+    mov GAPI_LOC_x, ax
+    @@forX:
+
+        ; coord = (y, x) if GAPI_LOC_slope else (x, y) -> draw
+        cmp GAPI_LOC_slope, 0
+        je @@c1
+        
+        ; Check if the current point has colided with the sprite
+        push GAPI_LOC_y
+        push GAPI_LOC_x
+        push GAPI_ARG_width
+        push GAPI_ARG_width
+        push GAPI_ARG_sprite_x
+        push GAPI_ARG_sprite_y
+        push GAPI_ARG_sprite_data
+        call CheckRectAndBMPCollision
+        cmp di, 0
+        je @@cont3
+        
+        mov di, 1
+        jmp @@ret
+
+        jmp @@cont3
+
+        @@c1:
+
+            ; Check if the current point has colided with the sprite
+            push GAPI_LOC_x
+            push GAPI_LOC_y
+            push GAPI_ARG_width
+            push GAPI_ARG_width
+            push GAPI_ARG_sprite_x
+            push GAPI_ARG_sprite_y
+            push GAPI_ARG_sprite_data
+            call CheckRectAndBMPCollision
+            cmp di, 0
+            je @@cont3
+
+            mov di, 1
+            jmp @@ret
+
+        @@cont3:
+
+        ; GAPI_LOC_error -= dy
+        mov ax, GAPI_LOC_error
+        sub ax, GAPI_LOC_deltY
+        mov GAPI_LOC_error, ax
+
+        ; if GAPI_LOC_error < 0
+        mov ax, GAPI_LOC_error
+        cmp ax, 0
+        jge @@skip3
+            ; y += GAPI_LOC_ystep
+            mov ax, GAPI_LOC_y
+            cmp GAPI_LOC_ystep, 1
+            jl @@yStepNeg
+            inc ax
+            jmp @@cont4
+            @@yStepNeg:
+                dec ax
+            @@cont4:
+
+    
+            mov GAPI_LOC_y, ax
+
+            ; GAPI_LOC_error += dx
+            mov ax, GAPI_LOC_error
+            add ax, GAPI_LOC_deltX
+            mov GAPI_LOC_error, ax
+        @@skip3:
+
+        inc GAPI_LOC_x
+        loop @@forX
+
+    mov di, 0
+    @@ret:
+    
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        
+        mov sp, bp
+        pop bp
+        
+        ret 16
+endp CheckLineAndBMPCollision
+
+; ##################################### 
+; 
+; Function Name: CheckRectAndBMPCollision (PUBLIC)
+; Description: Check if a rectangle has collided with a sprite
+; Input:
+; - [STACK] The X position of the rectangle
+; - [STACK] The Y position of the rectangle
+; - [STACK] The width of the rectangle
+; - [STACK] The height of the rectangle
+; - [STACK] The sprite X position
+; - [STACK] The sprite Y position
+; - [STACK] The offset to the variable that stores the sprite data
+; Output:
+; - [REG] DI = 1 if the point has collided with the sprite, otherwise 0
+; - [REG] AX = 0 if no error, otherwise error code
+;
+; ##################################### 
+GAPI_ARG_rect_x            equ [word bp+16]
+GAPI_ARG_rect_y            equ [word bp+14]
+GAPI_ARG_rect_width        equ [word bp+12]
+GAPI_ARG_rect_height       equ [word bp+10]
+GAPI_ARG_sprite_x          equ [word bp+8]
+GAPI_ARG_sprite_y          equ [word bp+6]
+GAPI_ARG_sprite_data       equ [word bp+4]
+GAPI_LOC_startX            equ [word bp-2]
+GAPI_LOC_startY            equ [word bp-4]
+GAPI_LOC_spriteX           equ [word bp-6]
+GAPI_LOC_spriteY           equ [word bp-8]
+GAPI_LOC_spriteW           equ [word bp-10]
+GAPI_LOC_spriteH           equ [word bp-12]
+GAPI_LOC_spriteOffLOW      equ [word bp-14]
+GAPI_LOC_spriteOffHIGH     equ [word bp-16]
+proc CheckRectAndBMPCollision
+    push bp
+    mov bp, sp
+    sub sp, 14
+
+    push bx
+    push cx
+    push dx
+    push si
+
+    ; Load sprite data
+    xor bx, bx
+    mov si, GAPI_ARG_sprite_data
+    mov bx, [word ds:si]
+    mov GAPI_LOC_spriteX, bx
+    mov bx, [word ds:si+2]
+    mov GAPI_LOC_spriteY, bx
+    mov bx, [word ds:si+4]
+    mov GAPI_LOC_spriteW, bx
+    mov bx, [word ds:si+6]
+    mov GAPI_LOC_spriteH, bx
+    mov bx, [word ds:si+8]
+    mov GAPI_LOC_spriteOffHIGH, bx
+    mov bx, [word ds:si+10]
+    mov GAPI_LOC_spriteOffLOW, bx
+
+    mov ax, 0
+    ; Check if rect is even in bounds of sprite
+    mov ax, GAPI_ARG_rect_x
+    add ax, GAPI_ARG_rect_width
+    cmp ax, GAPI_ARG_sprite_x
+    jl @@no_collision_mid
+    
+    mov ax, GAPI_ARG_sprite_x
+    add ax, GAPI_LOC_spriteW
+    cmp ax, GAPI_ARG_rect_x
+    jl @@no_collision_mid
+
+    mov ax, GAPI_ARG_rect_y
+    add ax, GAPI_ARG_rect_height
+    cmp ax, GAPI_ARG_sprite_y
+    jl @@no_collision_mid
+
+    mov ax, GAPI_ARG_sprite_y
+    add ax, GAPI_LOC_spriteH
+    cmp ax, GAPI_ARG_rect_y
+    jl @@no_collision_mid
+
+    jmp @@s
+
+    @@no_collision_mid:
+        jmp @@no_collision
+    @@s:
+
+    ; Calculate the rect's relative position to the sprite
+    mov ax, GAPI_ARG_rect_x
+    sub ax, GAPI_ARG_sprite_x
+    mov GAPI_LOC_startX, ax
+
+    mov ax, GAPI_LOC_spriteH
+    sub ax, GAPI_ARG_rect_height
+    sub ax, GAPI_ARG_rect_y
+    add ax, GAPI_ARG_sprite_y
+    mov GAPI_LOC_startY, ax
+
+    ; Calculate the starting offset within the sprite data
+    mov ax, GAPI_LOC_startY
+    mov cx, [GAPI_globe_width]
+    xor dx, dx
+    mul cx
+    add ax, GAPI_LOC_startX
+    adc dx, 0
+    add ax, bx
+    adc dx, 0
+    add ax, GAPI_LOC_spriteOffLOW
+    adc dx, GAPI_LOC_spriteOffHIGH
+
+    ; Advance the file pointer to the start of sprite data within the rectangle
+    push [GAPI_globe_file_handle]
+    push ax
+    push dx
+    call _SetFilePointer
+    cmp ax, 0
+    jne @@no_collision
+
+    ; Reset X and Y and use them to check if current pixel is within the sprite
+    mov ax, GAPI_ARG_rect_x
+    mov GAPI_LOC_startX, ax
+    mov ax, GAPI_ARG_rect_y
+    add ax, GAPI_ARG_rect_height
+    mov GAPI_LOC_startY, ax
+
+    ; Read sprite data within the rectangle and check for non-transparent pixels
+    mov cx, GAPI_ARG_rect_height
+    @@row_loop:
+        push cx
+
+        ; Read the line
+        mov cx, [GAPI_globe_width]
+        mov ah, 3Fh
+        mov bx, [GAPI_globe_file_handle]
+        mov dx, offset GAPI_curr_bmp_line
+        int 21h
+        jc @@ret
+
+        ; Loop over the current row
+        mov si, offset GAPI_curr_bmp_line
+        mov cx, GAPI_ARG_rect_width
+        @@col_loop:
+            xor ax, ax
+
+            ; Check if the current pixel is within the sprite
+            push GAPI_ARG_sprite_x
+            push GAPI_ARG_sprite_y
+            push GAPI_LOC_spriteW
+            push GAPI_LOC_spriteH
+            push GAPI_LOC_startX
+            push GAPI_LOC_startY
+            call CheckRectPointCollision
+            cmp di, 0
+            je @@skip_transparent_check
+
+            ; Check if the current pixel is transparent
+            mov al, [byte ds:si]
+            cmp al, [GPAI_transparent_clr_id]
+            jne @@collision_found
+            
+            @@skip_transparent_check:
+
+            inc si
+            inc GAPI_LOC_startX
+            loop @@col_loop
+      
+        dec GAPI_LOC_startY
+        mov ax, GAPI_ARG_rect_x
+        mov GAPI_LOC_startX, ax
+
+        pop cx
+        loop @@row_loop
+
+    @@no_collision:
+        mov di, 0
+        jmp @@ret
+
+    @@collision_found:
+        mov di, 1
+
+    mov ax, 0
+
+    @@ret:
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        
+        mov sp, bp
+        pop bp
+        ret 14
+endp CheckRectAndBMPCollision
+
+; #####################################
+;
+;  Function Name: CheckRectPointCollision (PUBLIC)
+;  Description: Check if a point has colided with a rectangle
+;  Input:
+;      - [STACK] The X position of the rectangle
+;      - [STACK] The Y position of the rectangle
+;      - [STACK] The width of the rectangle
+;      - [STACK] The height of the rectangle
+;      - [STACK] The X position of the point
+;      - [STACK] The Y position of the point
+;  Output:
+;      - [REG]   DI = 1 if the point has colided with the rectangle, otherwise 0
+;
+; #####################################
+GAPI_ARG_rect_x          equ [word bp+14]
+GAPI_ARG_rect_y          equ [word bp+12]
+GAPI_ARG_rect_width      equ [word bp+10]
+GAPI_ARG_rect_height     equ [word bp+8]
+GAPI_ARG_point_x         equ [word bp+6]
+GAPI_ARG_point_y         equ [word bp+4]
+proc CheckRectPointCollision
+    push bp
+    mov bp, sp
+
+    push ax
+
+    ; Check if the point has colided with the rectangle
+    mov ax, GAPI_ARG_point_x
+    cmp ax, GAPI_ARG_rect_x
+    jl @@no_colide
+    mov ax, GAPI_ARG_rect_x
+    add ax, GAPI_ARG_rect_width
+    cmp GAPI_ARG_point_x, ax
+    jg @@no_colide
+    mov ax, GAPI_ARG_point_y
+    cmp ax, GAPI_ARG_rect_y
+    jl @@no_colide
+    mov ax, GAPI_ARG_rect_y
+    add ax, GAPI_ARG_rect_height
+    cmp GAPI_ARG_point_y, ax
+    jg @@no_colide
+
+    mov di, 1
+    jmp @@ret
+
+    @@no_colide:
+        mov di, 0
+
+    @@ret:
+        pop ax
+        
+        mov sp, bp
+        pop bp
+        ret 12
+endp CheckRectPointCollision
+
 
 ; #####################################
 ;
@@ -1214,3 +1755,62 @@ proc DrawPalette
 endp DrawPalette
 
 ; ------+++===== Made by K9Dev / Ilai K =====+++------
+proc ShowAxDecimal
+	push ax
+	push bx
+	push cx
+	push dx
+
+	 
+	; check if negative
+	test ax,08000h
+	jz PositiveAx
+		
+	;  put '-' on the screen
+	push ax
+	mov dl,'-'
+	mov ah,2
+	int 21h
+	pop ax
+
+	neg ax ; make it positive
+PositiveAx:
+	mov cx,0   ; will count how many time we did push 
+	mov bx,10  ; the divider
+
+put_mode_to_stack:
+	xor dx,dx
+	div bx
+	add dl,30h
+	; dl is the current LSB digit 
+	; we cant push only dl so we push all dx
+	push dx    
+	inc cx
+	cmp ax,9   ; check if it is the last time to div
+	jg put_mode_to_stack
+
+	cmp ax,0
+	jz pop_next  ; jump if ax was totally 0
+	add al,30h  
+	mov dl, al    
+	mov ah, 2h
+	int 21h        ; show first digit MSB
+	   
+pop_next: 
+	pop ax    ; remove all rest LIFO (reverse) (MSB to LSB)
+	mov dl, al
+	mov ah, 2h
+	int 21h        ; show all rest digits
+	loop pop_next
+
+	mov dl, ','
+	mov ah, 2h
+	int 21h
+
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+
+	ret
+endp ShowAxDecimal
