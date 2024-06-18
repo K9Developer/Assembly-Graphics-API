@@ -6,7 +6,7 @@ of the sheet and treat each one as a different sprite.
 
 > [!NOTE]
 > 1. All arguemnts are passed via the stack
-> 2. I started learning ASM about 6 months ago, so if you have any notes please leave then in the [issues page](https://github.com/K9Developer/Assembly-Graphics-API/issues)
+> 2. I started learning ASM about 6 months ago, so if you have any notes please leave them in the [issues page](https://github.com/K9Developer/Assembly-Graphics-API/issues)
 
 
 ## How to "install"
